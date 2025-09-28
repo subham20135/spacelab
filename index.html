@@ -1,0 +1,411 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>Lost Lab Space Shooter</title>
+<script src="https://cdn.jsdelivr.net/npm/phaser@3.70.0/dist/phaser.js"></script>
+<style>
+  body { margin:0; overflow:hidden; background:#000011; }
+  canvas { display:block; }
+</style>
+<link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@700&family=Roboto:wght@500&display=swap" rel="stylesheet">
+</head>
+<body>
+<script type="module">
+class GameScene extends Phaser.Scene {
+    constructor(){ super('GameScene'); }
+
+    preload(){
+        this.load.image('player','assets/rocket.png');
+        this.load.image('heart','assets/heart (2).png');
+        this.load.audio('shoot','assets/laser.mp3');
+        this.load.audio('explosion','assets/explosion.mp3');
+        this.load.audio('engine','assets/spaceshipenginesound.mp3');
+
+        const g = this.make.graphics({x:0,y:0,add:false});
+        g.fillStyle(0xffff00,1);
+        g.fillRect(0,0,4,10);
+        g.generateTexture('bullet',4,10);
+    }
+
+    create(){
+        this.gameStarted=false;
+        this.showStartScreen();
+    }
+
+    showStartScreen(){
+        this.add.rectangle(this.scale.width/2,this.scale.height/2,this.scale.width,this.scale.height,0x000011);
+        this.startText=this.add.text(this.scale.width/2,this.scale.height/2-50,
+            "Welcome to the Lost Lab!",{
+                fontFamily: 'Orbitron, Arial', 
+                fontSize:'56px',
+                fontStyle:'bold',
+                color:'#00ffdd',
+                stroke:'#000000',
+                strokeThickness: 4,
+                shadow: {offsetX:3, offsetY:3, color:'#000', blur:6, stroke:true, fill:true}
+            }).setOrigin(0.5);
+
+        this.instructionText=this.add.text(this.scale.width/2,this.scale.height/2+40,
+            "Press SPACE to start the experiment",{
+                fontFamily: 'Roboto, Arial',
+                fontSize:'32px',
+                fontStyle:'bold',
+                color:'#ffcc00',
+                stroke:'#000000',
+                strokeThickness: 3,
+                shadow: {offsetX:2, offsetY:2, color:'#000', blur:4, stroke:true, fill:true}
+            }).setOrigin(0.5);
+
+        this.input.keyboard.once('keydown-SPACE',()=>{ 
+            this.startText.destroy(); 
+            this.instructionText.destroy(); 
+            this.startGame(); 
+        });
+    }
+
+    startGame(){
+        this.gameStarted=true;
+        this.engineSound = this.sound.add('engine',{volume:0.3,loop:true});
+
+        // Starfield
+        this.starSprites=[];
+        for(let i=0;i<200;i++){
+            let size=Phaser.Math.Between(1,3);
+            let star=this.add.rectangle(
+                Phaser.Math.Between(0,this.scale.width),
+                Phaser.Math.Between(0,this.scale.height),
+                size, size, 0xffffff
+            );
+            this.starSprites.push(star);
+        }
+
+        // Player
+        this.player=this.physics.add.sprite(this.scale.width/2,this.scale.height-120,'player').setScale(0.8);
+        this.player.setCollideWorldBounds(true);
+
+        // Bullets
+        this.bullets=this.physics.add.group({classType: Phaser.Physics.Arcade.Image, maxSize:30, runChildUpdate:true});
+
+        // Input
+        this.cursors = this.input.keyboard.createCursorKeys();
+        this.shootKey = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.SPACE);
+
+        // Lives and hearts
+        this.lives = 3;
+        this.hearts = [];
+        const heartSize = 0.1;   // very small hearts
+        const heartSpacing = 50;  // no overlap
+        for (let i = 0; i < this.lives; i++) {
+            let heart = this.add.image(20 + i * heartSpacing, 20, 'heart')
+                .setScale(heartSize)
+                .setOrigin(0, 0)
+                .setDepth(10);
+            this.hearts.push(heart);
+        }
+
+        // Score
+        this.score=0;
+        this.scoreText=this.add.text(10,50,'Score: 0',{
+            fontFamily:'Orbitron, Arial',
+            fontSize:'32px',
+            fontStyle:'bold',
+            color:'#ffff00',
+            stroke:'#000000',
+            strokeThickness:4,
+            shadow:{offsetX:2, offsetY:2, color:'#111', blur:4, stroke:true, fill:true}
+        }).setDepth(10);
+
+        // Feedback
+        this.feedbackText=this.add.text(this.scale.width/2,90,'',{
+            fontFamily:'Orbitron, Arial',
+            fontSize:'28px',
+            fontStyle:'bold',
+            color:'#00ff00',
+            stroke:'#000000',
+            strokeThickness:3,
+            shadow:{offsetX:2, offsetY:2, color:'#111', blur:4, stroke:true, fill:true}
+        }).setOrigin(0.5).setDepth(10);
+
+        // Questions (100+ Class 6 Science)
+        this.questions = [
+          {question:"What is the process by which plants make their own food?", options:["Photosynthesis","Respiration","Digestion","Transpiration"], answer:"Photosynthesis"},
+          {question:"Which of the following is NOT a living thing?", options:["Dog","Stone","Plant","Fish"], answer:"Stone"},
+          {question:"Which nutrient is mainly responsible for growth and body building?", options:["Proteins","Carbohydrates","Fats","Vitamins"], answer:"Proteins"},
+          {question:"Which organ in the human body pumps blood?", options:["Heart","Lungs","Liver","Brain"], answer:"Heart"},
+          {question:"Which gas do humans inhale to live?", options:["Oxygen","Carbon dioxide","Nitrogen","Hydrogen"], answer:"Oxygen"},
+          {question:"Which gas is released by plants during photosynthesis?", options:["Oxygen","Carbon dioxide","Nitrogen","Hydrogen"], answer:"Oxygen"},
+          {question:"Which of these is a non-magnetic material?", options:["Iron","Steel","Plastic","Cobalt"], answer:"Plastic"},
+          {question:"What is the boiling point of water?", options:["100°C","0°C","50°C","212°F"], answer:"100°C"},
+          {question:"Which is the smallest unit of life?", options:["Cell","Tissue","Organ","Organism"], answer:"Cell"},
+          {question:"Which of these animals lays eggs?", options:["Dog","Frog","Cow","Cat"], answer:"Frog"},
+          {question:"Which instrument is used to measure temperature?", options:["Thermometer","Barometer","Ruler","Balance"], answer:"Thermometer"},
+          {question:"Which of these is a source of energy for humans?", options:["Food","Air","Water","Stone"], answer:"Food"},
+          {question:"What do bees collect from flowers?", options:["Nectar","Water","Soil","Air"], answer:"Nectar"},
+          {question:"Which organ helps us in breathing?", options:["Lungs","Heart","Stomach","Kidneys"], answer:"Lungs"},
+          {question:"Which of the following is a conductor of electricity?", options:["Copper","Wood","Plastic","Rubber"], answer:"Copper"},
+          {question:"Which of these is a herbivore?", options:["Cow","Tiger","Lion","Fox"], answer:"Cow"},
+          {question:"What is H2O commonly called?", options:["Water","Hydrogen","Oxygen","Carbon dioxide"], answer:"Water"},
+          {question:"Which part of the plant absorbs water?", options:["Roots","Stem","Leaves","Flowers"], answer:"Roots"},
+          {question:"Which organ digests food in humans?", options:["Stomach","Heart","Lungs","Kidneys"], answer:"Stomach"},
+          {question:"Which planet is known as the Red Planet?", options:["Mars","Earth","Venus","Jupiter"], answer:"Mars"},
+          {question:"Which of these is a renewable source of energy?", options:["Sunlight","Coal","Petrol","Natural Gas"], answer:"Sunlight"},
+          {question:"Which of these helps in the transport of water in plants?", options:["Xylem","Phloem","Root Hair","Leaf"], answer:"Xylem"},
+          {question:"Which of these is a carnivore?", options:["Tiger","Cow","Goat","Elephant"], answer:"Tiger"},
+          {question:"Which is the largest organ in the human body?", options:["Skin","Heart","Liver","Lungs"], answer:"Skin"},
+          {question:"Which force pulls objects toward the Earth?", options:["Gravity","Magnetism","Friction","Air pressure"], answer:"Gravity"},
+          {question:"Which of these is a physical change?", options:["Melting","Rusting","Burning","Cooking"], answer:"Melting"},
+          {question:"Which part of the plant is green and makes food?", options:["Leaf","Root","Flower","Stem"], answer:"Leaf"},
+          {question:"Which blood cells help in fighting diseases?", options:["White Blood Cells","Red Blood Cells","Platelets","Plasma"], answer:"White Blood Cells"},
+          {question:"Which gas do plants take from the air for photosynthesis?", options:["Carbon dioxide","Oxygen","Nitrogen","Hydrogen"], answer:"Carbon dioxide"},
+          {question:"Which of these is soluble in water?", options:["Sugar","Sand","Oil","Chalk"], answer:"Sugar"},
+          {question:"Which of these animals is a mammal?", options:["Elephant","Crocodile","Snake","Frog"], answer:"Elephant"},
+          {question:"Which of these animals can fly?", options:["Bird","Dog","Cat","Elephant"], answer:"Bird"},
+          {question:"Which of the following is a source of vitamin D?", options:["Sunlight","Water","Rice","Milk"], answer:"Sunlight"},
+          {question:"Which is used to measure mass?", options:["Balance","Ruler","Thermometer","Clock"], answer:"Balance"},
+          {question:"Which of these is a liquid at room temperature?", options:["Water","Stone","Iron","Wood"], answer:"Water"},
+          {question:"Which part of the human body helps in pumping blood?", options:["Heart","Lungs","Liver","Kidney"], answer:"Heart"},
+          {question:"Which of the following animals live in water?", options:["Fish","Tiger","Lion","Elephant"], answer:"Fish"},
+          {question:"Which gas is essential for combustion?", options:["Oxygen","Carbon dioxide","Nitrogen","Hydrogen"], answer:"Oxygen"},
+          {question:"Which of these is NOT an amphibian?", options:["Frog","Snake","Toad","Salamander"], answer:"Snake"},
+          {question:"Which is a source of energy from the Sun?", options:["Solar energy","Coal","Petrol","Natural Gas"], answer:"Solar energy"},
+          {question:"Which of these is a tool used to measure rainfall?", options:["Rain Gauge","Thermometer","Ruler","Compass"], answer:"Rain Gauge"},
+          {question:"Which part of the human body senses touch?", options:["Skin","Eyes","Ears","Tongue"], answer:"Skin"},
+          {question:"Which organ removes waste from blood?", options:["Kidneys","Lungs","Heart","Stomach"], answer:"Kidneys"},
+          {question:"Which planet is closest to the Sun?", options:["Mercury","Venus","Earth","Mars"], answer:"Mercury"},
+          {question:"Which of these is a gas at room temperature?", options:["Oxygen","Water","Iron","Sugar"], answer:"Oxygen"},
+          {question:"Which of these is an insect?", options:["Ant","Frog","Lizard","Snake"], answer:"Ant"},
+          {question:"Which part of the plant holds it upright?", options:["Stem","Leaf","Root","Flower"], answer:"Stem"},
+          {question:"Which of the following is a sedimentary rock?", options:["Sandstone","Granite","Marble","Basalt"], answer:"Sandstone"},
+          {question:"Which organ stores bile?", options:["Gallbladder","Liver","Kidney","Pancreas"], answer:"Gallbladder"},
+          {question:"Which is the largest planet in the Solar System?", options:["Jupiter","Earth","Mars","Venus"], answer:"Jupiter"},
+          {question:"Which of these animals is cold-blooded?", options:["Lizard","Dog","Elephant","Tiger"], answer:"Lizard"},
+          {question:"Which of these is a non-renewable energy source?", options:["Coal","Solar","Wind","Water"], answer:"Coal"},
+          {question:"Which part of blood carries oxygen?", options:["Red Blood Cells","White Blood Cells","Platelets","Plasma"], answer:"Red Blood Cells"},
+          {question:"Which part of the plant transports food?", options:["Phloem","Xylem","Roots","Leaves"], answer:"Phloem"},
+          {question:"Which of these is a device to measure air pressure?", options:["Barometer","Thermometer","Ruler","Clock"], answer:"Barometer"},
+          {question:"Which of these is a herbivore?", options:["Goat","Tiger","Lion","Fox"], answer:"Goat"},
+          {question:"Which of these is a force that opposes motion?", options:["Friction","Gravity","Magnetism","Electricity"], answer:"Friction"},
+          {question:"Which of these is a natural satellite of Earth?", options:["Moon","Sun","Mars","Venus"], answer:"Moon"},
+          {question:"Which of these is a carnivorous plant?", options:["Venus Flytrap","Rose","Tulip","Sunflower"], answer:"Venus Flytrap"},
+          {question:"Which part of the eye helps to focus?", options:["Lens","Cornea","Pupil","Iris"], answer:"Lens"},
+          {question:"Which of these is soluble in water?", options:["Salt","Sand","Oil","Chalk"], answer:"Salt"},
+          {question:"Which organ stores urine?", options:["Bladder","Kidneys","Liver","Heart"], answer:"Bladder"},
+          {question:"Which of these is a fibrous food?", options:["Wheat","Sugar","Oil","Salt"], answer:"Wheat"},
+          {question:"Which of these is NOT a source of water?", options:["Sugar","River","Rain","Well"], answer:"Sugar"},
+          {question:"Which of these insects produces honey?", options:["Bee","Ant","Grasshopper","Cockroach"], answer:"Bee"},
+          {question:"Which of these helps in movement?", options:["Muscles","Lungs","Heart","Kidneys"], answer:"Muscles"},
+          {question:"Which of the following is a conductor of heat?", options:["Metal","Wood","Plastic","Rubber"], answer:"Metal"},
+          {question:"Which of these is a renewable source of energy?", options:["Wind","Coal","Petrol","Natural Gas"], answer:"Wind"},
+          {question:"Which of these animals lays eggs?", options:["Snake","Dog","Cat","Cow"], answer:"Snake"},
+          {question:"Which of these is used to measure volume?", options:["Measuring Cylinder","Ruler","Thermometer","Clock"], answer:"Measuring Cylinder"},
+          {question:"Which of these gases is essential for plants?", options:["Carbon dioxide","Oxygen","Nitrogen","Hydrogen"], answer:"Carbon dioxide"},
+          {question:"Which of these animals is an omnivore?", options:["Bear","Cow","Deer","Elephant"], answer:"Bear"},
+          {question:"Which part of the body controls all functions?", options:["Brain","Heart","Lungs","Liver"], answer:"Brain"},
+          {question:"Which of these is NOT a sensory organ?", options:["Heart","Eyes","Ears","Tongue"], answer:"Heart"},
+          {question:"Which of these is a metal?", options:["Iron","Wood","Plastic","Rubber"], answer:"Iron"},
+          {question:"Which of these is used to separate mixtures?", options:["Filter","Ruler","Thermometer","Balance"], answer:"Filter"},
+          {question:"Which of these is a fossil fuel?", options:["Coal","Wind","Solar","Water"], answer:"Coal"},
+          {question:"Which of these animals has a backbone?", options:["Cat","Earthworm","Cockroach","Octopus"], answer:"Cat"},
+          {question:"Which part of the ear helps to hear?", options:["Cochlea","Eyes","Nose","Tongue"], answer:"Cochlea"},
+          {question:"Which of these is a source of carbohydrates?", options:["Rice","Meat","Oil","Water"], answer:"Rice"},
+          {question:"Which of these is an electric conductor?", options:["Copper","Plastic","Rubber","Wood"], answer:"Copper"},
+          {question:"Which organ releases insulin?", options:["Pancreas","Liver","Heart","Kidney"], answer:"Pancreas"},
+          {question:"Which of these animals is amphibious?", options:["Frog","Tiger","Elephant","Lion"], answer:"Frog"},
+          {question:"Which of these is a part of the skeleton?", options:["Femur","Liver","Heart","Lungs"], answer:"Femur"},
+          {question:"Which of these animals breathes through gills?", options:["Fish","Dog","Elephant","Lion"], answer:"Fish"},
+          {question:"Which of these helps in reproduction of plants?", options:["Flower","Leaf","Root","Stem"], answer:"Flower"},
+          {question:"Which part of the plant is colorful and attracts insects?", options:["Flower","Leaf","Root","Stem"], answer:"Flower"},
+          {question:"Which of these animals are nocturnal?", options:["Owl","Cow","Horse","Goat"], answer:"Owl"},
+          {question:"Which of these is a poisonous gas?", options:["Carbon monoxide","Oxygen","Nitrogen","Helium"], answer:"Carbon monoxide"},
+          {question:"Which of these is a source of protein?", options:["Egg","Rice","Sugar","Oil"], answer:"Egg"},
+          {question:"Which of these is a soluble salt?", options:["Sodium chloride","Sand","Sugar candy","Chalk"], answer:"Sodium chloride"}
+        ];
+
+        this.currentQuestionIndex=0;
+        this.enemies=this.physics.add.group();
+        this.optionTexts=[];
+        this.showQuestion();
+        this.physics.add.overlap(this.bullets,this.enemies,this.bulletHitsEnemy,null,this);
+    }
+
+    showQuestion(){
+        this.enemies.clear(true,true);
+        this.optionTexts.forEach(t=>t.destroy());
+        this.optionTexts=[];
+
+        const q=this.questions[this.currentQuestionIndex];
+        if(!q) return;
+
+        if(this.questionText)this.questionText.destroy();
+        this.questionText=this.add.text(this.scale.width/2,50,q.question,{
+            fontFamily:'Orbitron, Arial',
+            fontSize:'36px',
+            fontStyle:'bold',
+            color:'#00ffff',
+            stroke:'#000000',
+            strokeThickness:4,
+            shadow:{offsetX:3, offsetY:3, color:'#111', blur:5, stroke:true, fill:true}
+        }).setOrigin(0.5);
+
+        const spacingX = this.scale.width / (q.options.length + 1);
+        const fixedY = Phaser.Math.Between(100, 200);
+
+        q.options.forEach((opt,i)=>{
+            const x = spacingX * (i+1);
+            const y = fixedY;
+
+            const g=this.make.graphics({x:0,y:0,add:false});
+            const color=Phaser.Display.Color.RandomRGB().color;
+            g.fillStyle(color,1);
+            g.fillCircle(30,30,30);
+            const key='bubble_'+opt+Date.now();
+            g.generateTexture(key,60,60);
+
+            const enemy=this.enemies.create(x,y,key);
+            enemy.setVelocityY(Phaser.Math.Between(50,100));
+            enemy.option=opt;
+            enemy.correct=(opt===q.answer);
+
+            const t=this.add.text(enemy.x,enemy.y,opt,{
+                fontFamily:'Roboto, Arial',
+                fontSize:'20px',
+                fontStyle:'bold',
+                color:'#000000',
+                stroke:'#ffffff',
+                strokeThickness:3,
+                shadow:{offsetX:1, offsetY:1, color:'#555', blur:2, stroke:true, fill:true}
+            }).setOrigin(0.5);
+            enemy.textObj=t;
+            this.optionTexts.push(t);
+        });
+    }
+
+    update(){
+        if(!this.gameStarted) return;
+
+        this.starSprites.forEach(star=>{
+            star.y += 2;
+            if(star.y > this.scale.height){ star.y=0; star.x=Phaser.Math.Between(0,this.scale.width);}
+        });
+
+        let moving=false;
+        if(this.cursors.left.isDown){ this.player.setVelocityX(-300); moving=true; }
+        else if(this.cursors.right.isDown){ this.player.setVelocityX(300); moving=true; }
+        else { this.player.setVelocityX(0); }
+
+        if(moving && !this.engineSound.isPlaying) this.engineSound.play();
+        if(!moving && this.engineSound.isPlaying) this.engineSound.stop();
+
+        if(Phaser.Input.Keyboard.JustDown(this.shootKey)) this.shootBullet();
+
+        this.enemies.children.iterate(enemy=>{
+            if(enemy && enemy.textObj){
+                enemy.textObj.x = enemy.x;
+                enemy.textObj.y = enemy.y;
+
+                if(enemy.y > this.scale.height + 50){
+                    if(enemy.correct){
+                        this.lives--;
+                        if(this.hearts[this.lives]) this.hearts[this.lives].destroy();
+                        this.feedbackText.setText("You missed the correct answer!");
+                        this.time.delayedCall(1000,()=>{this.feedbackText.setText('');},[],this);
+                        if(this.lives <= 0){ this.showGameOver(); return; }
+                    }
+                    enemy.textObj.destroy();
+                    enemy.destroy();
+
+                    if(enemy.correct){
+                        this.currentQuestionIndex++;
+                        if(this.currentQuestionIndex >= this.questions.length) this.currentQuestionIndex = 0;
+                        this.showQuestion();
+                    }
+                }
+            }
+        });
+
+        this.scoreText.setText('Score: ' + this.score);
+    }
+
+    shootBullet(){
+        const bullet=this.bullets.get(this.player.x,this.player.y-30,'bullet');
+        if(bullet){
+            bullet.setActive(true).setVisible(true);
+            this.physics.world.enable(bullet);
+            bullet.body.setVelocityY(-400);
+            this.sound.play('shoot',{volume:0.4});
+        }
+    }
+
+    bulletHitsEnemy(bullet, enemy){
+        bullet.destroy();
+        if(enemy.correct){
+            this.score += 10;
+            this.feedbackText.setText("Brilliant, Space Warrior!");
+        } else {
+            this.lives--;
+            if(this.hearts[this.lives]) this.hearts[this.lives].destroy();
+            this.feedbackText.setText("Oops! Wrong shot!");
+        }
+
+        this.sound.play('explosion',{volume:0.5});
+        this.time.delayedCall(1000,()=>{this.feedbackText.setText('');},[],this);
+
+        if(enemy.textObj) enemy.textObj.destroy();
+        enemy.destroy();
+
+        if(this.lives <= 0){ this.showGameOver(); return; }
+
+        if(enemy.correct){
+            this.currentQuestionIndex++;
+            if(this.currentQuestionIndex >= this.questions.length) this.currentQuestionIndex = 0;
+            this.showQuestion();
+        }
+    }
+
+    showGameOver(){
+        this.gameStarted=false;
+        if(this.engineSound) this.engineSound.stop();
+
+        this.add.rectangle(this.scale.width/2,this.scale.height/2,this.scale.width,this.scale.height,0x000011,0.9);
+        this.add.text(this.scale.width/2,this.scale.height/2-50,
+            "Better luck next time, Space Scientist!",{
+                fontFamily:'Orbitron, Arial',
+                fontSize:'44px',
+                fontStyle:'bold',
+                color:'#ff4444',
+                stroke:'#000000',
+                strokeThickness:4,
+                shadow:{offsetX:3, offsetY:3, color:'#000', blur:5, stroke:true, fill:true}
+            }).setOrigin(0.5);
+
+        this.add.text(this.scale.width/2,this.scale.height/2+20,
+            "Press SPACE to restart",{
+                fontFamily:'Roboto, Arial',
+                fontSize:'32px',
+                fontStyle:'bold',
+                color:'#00ffff',
+                stroke:'#000000',
+                strokeThickness:3,
+                shadow:{offsetX:2, offsetY:2, color:'#000', blur:4, stroke:true, fill:true}
+            }).setOrigin(0.5);
+
+        this.input.keyboard.once('keydown-SPACE',()=>{ this.scene.restart(); });
+    }
+}
+
+const config={
+    type: Phaser.AUTO,
+    width: window.innerWidth,
+    height: window.innerHeight,
+    backgroundColor:'#000011',
+    physics:{default:'arcade',arcade:{debug:false}},
+    scene: GameScene,
+    scale:{mode: Phaser.Scale.RESIZE, autoCenter: Phaser.Scale.CENTER_BOTH}
+};
+
+new Phaser.Game(config);
+</script>
+</body>
+</html>
